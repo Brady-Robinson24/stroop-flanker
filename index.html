@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Stroop–Flanker Task (Standalone)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0f1115;
+      --fg: #e8e8e8;
+      --muted: #a9a9a9;
+      --accent: #4CAF50;
+      --card: #171a22;
+    }
+    html, body { height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      margin: 0;
+      font-family: ui-sans-serif, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #app { width: min(900px, 92vw); }
+    .card {
+      background: var(--card);
+      border: 1px solid #222734;
+      border-radius: 16px;
+      padding: 28px 30px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    }
+    h1, h2, h3 { margin: 0 0 12px 0; }
+    p { line-height: 1.6; color: var(--fg); }
+    .muted { color: var(--muted); }
+    .btn {
+      border: 0; outline: 0;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    .btn:disabled { opacity: .7; cursor: not-allowed; }
+    .kbd {
+      background:#242938; border:1px solid #2f3547; color:#fff;
+      padding: 2px 8px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .center { text-align: center; }
+    .row { display:flex; gap: 40px; align-items:center; justify-content:center; }
+    .stim { font-size: 56px; font-weight: 800; letter-spacing: 2px; }
+    .fix { font-size: 56px; }
+    .small { font-size: 13px; color: var(--muted); }
+    .grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+    .metric { background:#12151d; border:1px solid #1d2330; padding:10px 12px; border-radius:10px; }
+    a.btn-link { text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="panel" class="card"></div>
+  </div>
+
+<script>
+(function(){
+  // -------------------- Config --------------------
+  const COLORS = [
+    {name:'RED', css:'#e74c3c'},
+    {name:'GREEN', css:'#2ecc71'},
+    {name:'BLUE', css:'#3498db'},
+    {name:'YELLOW', css:'#f1c40f'}
+  ];
+  const CONDITIONS = ['NONE','1D','2D','BD']; // block types
+  const FIX_DUR = 500;
+  const STIM_DUR = 1000;
+  const ISI_DUR = 100;
+  const PRACTICE_TRIALS = 12;
+  const TRIALS_PER_BLOCK = 20;
+  const INCONGRUENT_PER_BLOCK = 6;
+  const RESPONSE_KEY = ' '; // space
+  // ------------------------------------------------
+
+  const panel = document.getElementById('panel');
+
+  // Utility
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]] } return a; }
+  const sample = arr => arr[Math.floor(Math.random()*arr.length)];
+  const otherColors = (ink) => COLORS.filter(c => c.name !== ink.name);
+
+  function makeTarget(congruent=true){
+    const ink = sample(COLORS);
+    const word = congruent ? ink : sample(otherColors(ink));
+    return {ink, word, congruent};
+  }
+
+  function makeFlankers(target, condition){
+    const black = '#eeeeee';
+    if(condition==='NONE'){ return []; }
+    if(condition==='BD'){
+      return [
+        {text: sample(COLORS).name, css: black},
+        {text: sample(COLORS).name, css: black}
+      ];
+    }
+    if(condition==='1D'){
+      return [
+        {text: sample(COLORS).name, css: sample(COLORS).css},
+        {text: sample(COLORS).name, css: sample(COLORS).css}
+      ];
+    }
+    if(condition==='2D'){
+      const matchSide = Math.random()<0.5 ? 'L':'R';
+      const matchFlanker = {text: sample(COLORS).name, css: target.ink.css};
+      const diffColor = sample(otherColors(target.ink));
+      const diffFlanker = {text: sample(COLORS).name, css: diffColor.css};
+      return matchSide==='L' ? [matchFlanker, diffFlanker] : [diffFlanker, matchFlanker];
+    }
+    return [];
+  }
+
+  function drawStimHTML(target, flankers){
+    const t = `<div class="stim" style="color:${target.ink.css}">${target.word.name}</div>`;
+    if(flankers.length===0) return `<div class="row">${t}</div>`;
+    const L = `<div class="stim" style="color:${flankers[0].css}">${flankers[0].text}</div>`;
+    const R = `<div class="stim" style="color:${flankers[1].css}">${flankers[1].text}</div>`;
+    return `<div class="row">${L}${t}${R}</div>`;
+  }
+
+  function buildTrials(condition, nTrials, nIncong){
+    const labels = Array(nTrials - nIncong).fill(true).concat(Array(nIncong).fill(false));
+    shuffle(labels);
+    const trials = labels.map(isCong => {
+      const target = makeTarget(isCong);
+      const flankers = makeFlankers(target, condition);
+      return {
+        condition,
+        congruent: isCong,
+        target_word: target.word.name,
+        target_ink: target.ink.name,
+        flankers,
+        html: drawStimHTML(target, flankers)
+      };
+    });
+    return trials;
+  }
+
+  // Data
+  const allData = [];
+  let acceptResponse = false;
+  let stimOnset = null;
+  let responded = false;
+  let responseRT = null;
+  let responseKey = null;
+
+  function keyHandler(e){
+    if(e.key === ' ' || e.code === 'Space'){
+      e.preventDefault();
+    }
+    if(!acceptResponse) return;
+    if(e.key === RESPONSE_KEY || e.code === 'Space'){
+      responded = true;
+      responseKey = 'SPACE';
+      responseRT = performance.now() - stimOnset;
+      acceptResponse = false; // only first response counts
+    }
+  }
+  window.addEventListener('keydown', keyHandler, {passive:false});
+
+  function scoreTrial(tr){
+    const hit = tr.congruent && responded;
+    const miss = tr.congruent && !responded;
+    const falseAlarm = (!tr.congruent && responded);
+    const correctReject = (!tr.congruent && !responded);
+    const correct = hit || correctReject;
+    return {hit, miss, falseAlarm, correctReject, correct};
+  }
+
+  function csvEscape(s){
+    if(s == null) return '';
+    const str = String(s);
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g,'""')}"` : str;
+  }
+
+  function toCSV(rows){
+    if(rows.length===0) return '';
+    const cols = Object.keys(rows[0]);
+    const header = cols.join(',');
+    const lines = rows.map(r => cols.map(k => csvEscape(r[k])).join(','));
+    return [header, ...lines].join('\n');
+  }
+
+  function downloadCSV(filename, content){
+    const blob = new Blob([content], {type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.className = 'btn btn-link';
+    a.textContent = 'Download CSV Data';
+    return a;
+  }
+
+  // UI helpers
+  function render(html){ panel.innerHTML = html; }
+  function button(label, id='btn'){ return `<button class="btn" id="${id}">${label}</button>`; }
+  function onClick(id, fn){ const el = document.getElementById(id); if(el) el.addEventListener('click', fn); }
+
+  // Flow
+  async function showWelcome(){
+    render(`<div class="center">
+      <h1>Stroop–Flanker Task</h1>
+      <p>Press <span class="kbd">SPACE</span> only when the <b>central word's ink color</b> matches its <b>meaning</b> (congruent). Ignore side words.</p>
+      <p class="muted">Timing: fixation ${FIX_DUR} ms → stimulus ${STIM_DUR} ms → blank ${ISI_DUR} ms.</p>
+      ${button('Start Practice','start')}
+    </div>`);
+    onClick('start', runPractice);
+  }
+
+  async function runPractice(){
+    const trials = buildTrials('NONE', PRACTICE_TRIALS, Math.floor(PRACTICE_TRIALS/3));
+    await runBlock('Practice (NONE)', trials, 'practice');
+    // feedback
+    const d = allData.filter(x => x.phase==='practice');
+    const acc = d.filter(x => x.correct).length / d.length;
+    const hitRTs = d.filter(x => x.hit && x.rt!==null).map(x => x.rt);
+    const meanRT = hitRTs.length ? Math.round(hitRTs.reduce((a,b)=>a+b,0)/hitRTs.length) : '—';
+    render(`<div class="center">
+      <h2>Practice Feedback</h2>
+      <div class="grid">
+        <div class="metric"><b>Accuracy</b><br>${(acc*100).toFixed(1)}%</div>
+        <div class="metric"><b>Mean RT (Hits)</b><br>${meanRT} ms</div>
+      </div>
+      <p class="muted">Proceed to the main blocks. Keep your eyes on the center and ignore flankers.</p>
+      ${button('Start Main Task','main')}
+    </div>`);
+    onClick('main', runMain);
+  }
+
+  async function runMain(){
+    const order = shuffle(CONDITIONS.slice());
+    for(const cond of order){
+      const trials = buildTrials(cond, TRIALS_PER_BLOCK, INCONGRUENT_PER_BLOCK);
+      await readyScreen(cond);
+      await runBlock(cond, trials, 'main');
+    }
+    showFinish();
+  }
+
+  async function readyScreen(cond){
+    render(`<div class="center">
+      <h2>Next Block: ${cond}</h2>
+      <p>Press <span class="kbd">SPACE</span> for <b>congruent</b> targets only. Ignore distractors.</p>
+      ${button('Begin','begin')}
+    </div>`);
+    await new Promise(res => onClick('begin', res));
+  }
+
+  async function runBlock(label, trials, phase){
+    for(let i=0;i<trials.length;i++){
+      // Fixation
+      render(`<div class="center"><div class="fix">+</div></div>`);
+      await sleep(FIX_DUR);
+
+      // Stimulus
+      const tr = trials[i];
+      responded = false; responseRT = null; responseKey = null;
+      acceptResponse = true;
+      stimOnset = performance.now();
+      render(`<div class="center">${tr.html}</div>`);
+      await sleep(STIM_DUR);
+      acceptResponse = false;
+
+      // Score + log
+      const score = scoreTrial({congruent: tr.congruent});
+      const row = {
+        phase,
+        block: label,
+        trial_index: i+1,
+        condition: tr.condition,
+        target_word: tr.target_word,
+        target_ink: tr.target_ink,
+        flankers: JSON.stringify(tr.flankers),
+        congruent: tr.congruent,
+        responded,
+        key: responseKey,
+        rt: responded ? Math.round(responseRT) : null,
+        hit: score.hit,
+        miss: score.miss,
+        false_alarm: score.falseAlarm,
+        correct_reject: score.correctReject,
+        correct: score.correct,
+        timestamp: new Date().toISOString()
+      };
+      allData.push(row);
+
+      // ISI
+      render(`<div class="center"><div></div></div>`);
+      await sleep(ISI_DUR);
+    }
+  }
+
+  function showFinish(){
+    const d = allData.filter(x => x.phase==='main');
+    const acc = d.filter(x => x.correct).length / d.length;
+    const hitRTs = d.filter(x => x.hit && x.rt!==null).map(x => x.rt);
+    const meanRT = hitRTs.length ? Math.round(hitRTs.reduce((a,b)=>a+b,0)/hitRTs.length) : '—';
+
+    const csv = toCSV(allData);
+    const link = downloadCSV('stroop_flanker_data.csv', csv);
+
+    render(`<div class="center">
+      <h2>Task Complete</h2>
+      <div class="grid">
+        <div class="metric"><b>Overall Accuracy</b><br>${(acc*100).toFixed(1)}%</div>
+        <div class="metric"><b>Mean RT (Hits)</b><br>${meanRT} ms</div>
+      </div>
+      <p class="muted">Use the button below to save your raw data as CSV.</p>
+    </div>`);
+    panel.appendChild(link);
+  }
+
+  // Kick off
+  showWelcome();
+})();
+</script>
+</body>
+</html>
